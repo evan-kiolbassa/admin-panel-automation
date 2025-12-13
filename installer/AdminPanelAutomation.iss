@@ -7,7 +7,7 @@
 #define MyAppExeName "AdminPanelAutomation.exe"
 
 [Setup]
-AppId={B0A8D5A7-6C54-4F39-BF19-0F1E88C2C1D3}
+AppId={{B0A8D5A7-6C54-4F39-BF19-0F1E88C2C1D3}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
