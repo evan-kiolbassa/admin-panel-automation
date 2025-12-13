@@ -1,0 +1,63 @@
+# -*- mode: python ; coding: utf-8 -*-
+"""
+PyInstaller spec for AdminPanelAutomation.
+
+Notes
+-----
+- Uses one-folder build (onedir) because Playwright + browsers are large.
+- Expects PLAYWRIGHT_BROWSERS_PATH=0 during `playwright install` so browsers are under the playwright package.
+"""
+
+from PyInstaller.utils.hooks import collect_all, collect_submodules
+from pathlib import Path
+
+project_root = Path(__file__).resolve().parents[2]
+src_root = project_root / "src"
+
+# Collect Playwright (driver + data + browsers under .local-browsers when PLAYWRIGHT_BROWSERS_PATH=0)
+pw_datas, pw_binaries, pw_hidden = collect_all("playwright")
+
+# pywinauto has optional imports; collect submodules for safety
+hiddenimports = pw_hidden + collect_submodules("pywinauto")
+
+a = Analysis(
+    ["src/admin_panel_automation/main.py"],
+    pathex=[str(project_root), str(src_root)],
+    binaries=pw_binaries,
+    datas=pw_datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=None,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=None)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="AdminPanelAutomation",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="AdminPanelAutomation",
+)
