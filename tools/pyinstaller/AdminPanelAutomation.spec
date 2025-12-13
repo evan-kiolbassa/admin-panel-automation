@@ -12,11 +12,19 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 from pathlib import Path
 
 spec_dir = Path(globals().get("SPECPATH", Path.cwd())).resolve()
-project_root = next(
-    (parent for parent in [spec_dir, *spec_dir.parents] if (parent / "pyproject.toml").is_file()),
-    spec_dir,
-)
+
+def _find_project_root(start_dir: Path) -> Path:
+    for parent in [start_dir, *start_dir.parents]:
+        if (parent / "pyproject.toml").is_file():
+            return parent
+        if (parent / "src" / "admin_panel_automation" / "main.py").is_file():
+            return parent
+    return start_dir
+
+
+project_root = _find_project_root(spec_dir)
 src_root = project_root / "src"
+entry_script = src_root / "admin_panel_automation" / "main.py"
 
 # Collect Playwright (driver + data + browsers under .local-browsers when PLAYWRIGHT_BROWSERS_PATH=0)
 pw_datas, pw_binaries, pw_hidden = collect_all("playwright")
@@ -25,7 +33,7 @@ pw_datas, pw_binaries, pw_hidden = collect_all("playwright")
 hiddenimports = pw_hidden + collect_submodules("pywinauto")
 
 a = Analysis(
-    ["src/admin_panel_automation/main.py"],
+    [str(entry_script)],
     pathex=[str(project_root), str(src_root)],
     binaries=pw_binaries,
     datas=pw_datas,
