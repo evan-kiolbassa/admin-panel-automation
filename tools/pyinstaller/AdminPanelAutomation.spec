@@ -11,7 +11,11 @@ Notes
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 from pathlib import Path
 
-project_root = Path(__file__).resolve().parents[2]
+spec_dir = Path(globals().get("SPECPATH", Path.cwd())).resolve()
+project_root = next(
+    (parent for parent in [spec_dir, *spec_dir.parents] if (parent / "pyproject.toml").is_file()),
+    spec_dir,
+)
 src_root = project_root / "src"
 
 # Collect Playwright (driver + data + browsers under .local-browsers when PLAYWRIGHT_BROWSERS_PATH=0)

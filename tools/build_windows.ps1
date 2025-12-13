@@ -1,4 +1,4 @@
-\
+
 <#
 .SYNOPSIS
     Builds the Windows executable with PyInstaller and compiles an installer.exe via Inno Setup.
