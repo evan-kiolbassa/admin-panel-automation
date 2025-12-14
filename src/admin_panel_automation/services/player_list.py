@@ -76,27 +76,39 @@ class PlayerListService:
         import uuid
 
         marker = f"__APA_LISTPLAYERS_WAIT_{uuid.uuid4()}__"
+        original_clip = ""
+        try:
+            original_clip = pyperclip.paste() or ""
+        except Exception:
+            original_clip = ""
+
         try:
             pyperclip.copy(marker)
         except Exception:
             pass
 
-        old_clip = ""
         try:
-            old_clip = pyperclip.paste()
-        except Exception:
-            old_clip = ""
+            ChivalryConsoleAutomation.paste_and_execute("listplayers", restore_clipboard=False)
 
-        ChivalryConsoleAutomation.paste_and_execute("listplayers", restore_clipboard=False)
+            deadline = time.time() + timeout_s
+            while time.time() < deadline:
+                cur = pyperclip.paste()
+                if cur and cur != marker and cur != original_clip:
+                    return cur
+                time.sleep(0.25)
 
-        deadline = time.time() + timeout_s
-        while time.time() < deadline:
-            cur = pyperclip.paste()
-            if cur and cur != marker and cur != old_clip:
-                return cur
-            time.sleep(0.25)
-
-        raise TimeoutError("Timed out waiting for player list to populate the clipboard.")
+            raise TimeoutError(
+                "Timed out waiting for player list to populate the clipboard. "
+                "This usually means the console command did not execute."
+            )
+        finally:
+            # Don't leave the marker behind if capture fails.
+            try:
+                cur = pyperclip.paste() or ""
+                if cur == marker:
+                    pyperclip.copy(original_clip)
+            except Exception:
+                pass
 
     def _submit_clipboard_to_web(self, clipboard_text: str) -> None:
         """Fill textarea#listplayerdata and click Submit."""

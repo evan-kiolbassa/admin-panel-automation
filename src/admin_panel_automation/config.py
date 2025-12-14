@@ -65,7 +65,9 @@ class GameConfig:
     after_escape_delay_s: float = 0.15
     console_open_delay_s: float = 1.0
     after_command_delay_s: float = 0.2
-    pre_console_escape: bool = True
+    # Default False to match the manual sequence: focus -> ` -> type -> Enter.
+    # Set True if you frequently end up in menus/chat and want to send ESC first.
+    pre_console_escape: bool = False
 
 
 GAME_CONFIG = GameConfig()

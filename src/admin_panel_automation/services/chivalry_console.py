@@ -23,6 +23,29 @@ class ChivalryConsoleAutomation:
     _match = ChivalryWindowMatch()
 
     @staticmethod
+    def _press_vk_keybd_event(vk_code: int) -> None:
+        """Press and release a Windows virtual-key code via keybd_event (fallback)."""
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        map_virtual_key = user32.MapVirtualKeyW
+        map_virtual_key.argtypes = (wintypes.UINT, wintypes.UINT)
+        map_virtual_key.restype = wintypes.UINT
+
+        keybd_event = user32.keybd_event
+        keybd_event.argtypes = (wintypes.BYTE, wintypes.BYTE, wintypes.DWORD, wintypes.ULONG_PTR)
+        keybd_event.restype = None
+
+        scan = map_virtual_key(vk_code, 0) & 0xFF
+        keybd_event(vk_code & 0xFF, scan, 0, 0)
+        keybd_event(vk_code & 0xFF, scan, 0x0002, 0)  # KEYEVENTF_KEYUP
+
+        err = ctypes.get_last_error()
+        if err:
+            raise OSError(f"keybd_event reported err={err} for VK 0x{vk_code:02X}.")
+
+    @staticmethod
     def _press_virtual_key(vk_code: int) -> None:
         """Press and release a Windows virtual-key code."""
         import ctypes
@@ -227,6 +250,12 @@ class ChivalryConsoleAutomation:
             errors.append(e)
 
         try:
+            cls._press_vk_keybd_event(0x0D)  # VK_RETURN
+            return
+        except Exception as e:
+            errors.append(e)
+
+        try:
             from pywinauto.keyboard import send_keys
 
             send_keys("{ENTER}", pause=0.02)
@@ -296,10 +325,10 @@ class ChivalryConsoleAutomation:
             except Exception:
                 pass
         errors: list[Exception] = []
-        try:
-            from pywinauto.keyboard import send_keys
 
-            send_keys("`", pause=0.02)
+        # Prefer physical key delivery over text, because games often ignore character input.
+        try:
+            cls._press_scan_code(GAME_CONFIG.console_open_scan_code)
             return
         except Exception as e:
             errors.append(e)
@@ -311,7 +340,15 @@ class ChivalryConsoleAutomation:
             errors.append(e)
 
         try:
-            cls._press_scan_code(GAME_CONFIG.console_open_scan_code)
+            cls._press_vk_keybd_event(GAME_CONFIG.console_open_vk)
+            return
+        except Exception as e:
+            errors.append(e)
+
+        try:
+            from pywinauto.keyboard import send_keys
+
+            send_keys("`", pause=0.02)
             return
         except Exception as e:
             errors.append(e)
