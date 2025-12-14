@@ -51,11 +51,13 @@ class ChivalryConsoleAutomation:
             _anonymous_ = ("u",)
             _fields_ = [("type", wintypes.DWORD), ("u", _INPUT_UNION)]
 
-        send_input = ctypes.windll.user32.SendInput
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        send_input = user32.SendInput
         send_input.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
         send_input.restype = wintypes.UINT
 
-        map_virtual_key = ctypes.windll.user32.MapVirtualKeyW
+        map_virtual_key = user32.MapVirtualKeyW
         map_virtual_key.argtypes = (wintypes.UINT, wintypes.UINT)
         map_virtual_key.restype = wintypes.UINT
 
@@ -82,7 +84,8 @@ class ChivalryConsoleAutomation:
 
         sent = send_input(2, inputs, ctypes.sizeof(INPUT))
         if sent != 2:
-            raise OSError(f"Failed to send VK 0x{vk_code:02X} (SendInput sent {sent}/2).")
+            err = ctypes.get_last_error()
+            raise OSError(f"Failed to send VK 0x{vk_code:02X} (SendInput sent {sent}/2, err={err}).")
 
     @staticmethod
     def _press_scan_code(scan_code: int) -> None:
@@ -112,7 +115,9 @@ class ChivalryConsoleAutomation:
             _anonymous_ = ("u",)
             _fields_ = [("type", wintypes.DWORD), ("u", _INPUT_UNION)]
 
-        send_input = ctypes.windll.user32.SendInput
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        send_input = user32.SendInput
         send_input.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
         send_input.restype = wintypes.UINT
 
@@ -135,7 +140,10 @@ class ChivalryConsoleAutomation:
 
         sent = send_input(2, inputs, ctypes.sizeof(INPUT))
         if sent != 2:
-            raise OSError(f"Failed to send scan code 0x{scan_code:02X} (SendInput sent {sent}/2).")
+            err = ctypes.get_last_error()
+            raise OSError(
+                f"Failed to send scan code 0x{scan_code:02X} (SendInput sent {sent}/2, err={err})."
+            )
 
     @staticmethod
     def _send_text_unicode(text: str) -> None:
@@ -165,7 +173,9 @@ class ChivalryConsoleAutomation:
             _anonymous_ = ("u",)
             _fields_ = [("type", wintypes.DWORD), ("u", _INPUT_UNION)]
 
-        send_input = ctypes.windll.user32.SendInput
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        send_input = user32.SendInput
         send_input.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
         send_input.restype = wintypes.UINT
 
@@ -197,7 +207,35 @@ class ChivalryConsoleAutomation:
         arr = (INPUT * len(inputs))(*inputs)
         sent = send_input(len(arr), arr, ctypes.sizeof(INPUT))
         if sent != len(arr):
-            raise OSError(f"Failed to send Unicode text (SendInput sent {sent}/{len(arr)}).")
+            err = ctypes.get_last_error()
+            raise OSError(f"Failed to send Unicode text (SendInput sent {sent}/{len(arr)}, err={err}).")
+
+    @classmethod
+    def _press_enter(cls) -> None:
+        """Press Enter with multiple fallbacks (some environments block SendInput for VK_RETURN)."""
+        errors: list[Exception] = []
+        try:
+            cls._press_virtual_key(0x0D)  # VK_RETURN
+            return
+        except Exception as e:
+            errors.append(e)
+
+        try:
+            cls._press_scan_code(0x1C)  # ENTER
+            return
+        except Exception as e:
+            errors.append(e)
+
+        try:
+            from pywinauto.keyboard import send_keys
+
+            send_keys("{ENTER}", pause=0.02)
+            return
+        except Exception as e:
+            errors.append(e)
+
+        msg = "; ".join(str(e) for e in errors if str(e))
+        raise RuntimeError(f"Failed to press Enter. {msg}") from errors[0]
 
     @staticmethod
     def ensure_windows() -> None:
@@ -234,6 +272,12 @@ class ChivalryConsoleAutomation:
         )
         win = candidates[0]
         win.set_focus()
+        try:
+            import ctypes
+
+            ctypes.WinDLL("user32", use_last_error=True).SetForegroundWindow(int(win.handle))
+        except Exception:
+            pass
         if GAME_CONFIG.click_to_focus:
             try:
                 win.click_input(coords=(50, 50))
@@ -251,15 +295,29 @@ class ChivalryConsoleAutomation:
                 time.sleep(GAME_CONFIG.after_escape_delay_s)
             except Exception:
                 pass
+        errors: list[Exception] = []
+        try:
+            from pywinauto.keyboard import send_keys
+
+            send_keys("`", pause=0.02)
+            return
+        except Exception as e:
+            errors.append(e)
+
         try:
             cls._press_virtual_key(GAME_CONFIG.console_open_vk)
-        except Exception:
-            try:
-                cls._press_scan_code(GAME_CONFIG.console_open_scan_code)
-            except Exception:
-                from pywinauto.keyboard import send_keys
+            return
+        except Exception as e:
+            errors.append(e)
 
-                send_keys("`", pause=0.02)
+        try:
+            cls._press_scan_code(GAME_CONFIG.console_open_scan_code)
+            return
+        except Exception as e:
+            errors.append(e)
+
+        msg = "; ".join(str(e) for e in errors if str(e))
+        raise RuntimeError(f"Failed to open console. {msg}") from errors[0]
 
     @classmethod
     def paste_and_execute(cls, command: str, restore_clipboard: bool = True) -> None:
@@ -286,13 +344,18 @@ class ChivalryConsoleAutomation:
         cls.open_console()
         time.sleep(GAME_CONFIG.console_open_delay_s)
         try:
-            cls._send_text_unicode(command)
-        except Exception:
             from pywinauto.keyboard import send_keys
 
             send_keys(command, with_spaces=True, pause=0.01)
+        except Exception:
+            cls._send_text_unicode(command)
 
-        cls._press_virtual_key(0x0D)  # VK_RETURN
+        try:
+            from pywinauto.keyboard import send_keys
+
+            send_keys("{ENTER}", pause=0.02)
+        except Exception:
+            cls._press_enter()
 
         # Keep game in foreground.
         time.sleep(GAME_CONFIG.after_command_delay_s)
