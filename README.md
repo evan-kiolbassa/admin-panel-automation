@@ -6,9 +6,8 @@ This project builds a Windows desktop app (Tkinter) that:
 - Executes admin actions from clipboard in the Chivalry 2 console
 
 ## Build the installer on GitHub Actions
-1. Push this folder to a GitHub repository.
-2. Run the "Build Windows installer" workflow.
-3. Download the `AdminPanelAutomationInstaller.exe` artifact.
+1. Run the "Build Windows installer" workflow.
+2. Download the `AdminPanelAutomationInstaller.exe` artifact.
 
 ## Local Windows build
 - Install Python 3.11+
