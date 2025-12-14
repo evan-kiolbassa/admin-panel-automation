@@ -28,22 +28,76 @@ class ChivalryConsoleAutomation:
         import ctypes
         from ctypes import wintypes
 
+        ULONG_PTR = getattr(wintypes, "ULONG_PTR", ctypes.c_void_p)
+
         user32 = ctypes.WinDLL("user32", use_last_error=True)
         map_virtual_key = user32.MapVirtualKeyW
         map_virtual_key.argtypes = (wintypes.UINT, wintypes.UINT)
         map_virtual_key.restype = wintypes.UINT
 
         keybd_event = user32.keybd_event
-        keybd_event.argtypes = (wintypes.BYTE, wintypes.BYTE, wintypes.DWORD, wintypes.ULONG_PTR)
+        keybd_event.argtypes = (wintypes.BYTE, wintypes.BYTE, wintypes.DWORD, ULONG_PTR)
         keybd_event.restype = None
 
         scan = map_virtual_key(vk_code, 0) & 0xFF
+        ctypes.set_last_error(0)
         keybd_event(vk_code & 0xFF, scan, 0, 0)
         keybd_event(vk_code & 0xFF, scan, 0x0002, 0)  # KEYEVENTF_KEYUP
 
-        err = ctypes.get_last_error()
-        if err:
-            raise OSError(f"keybd_event reported err={err} for VK 0x{vk_code:02X}.")
+    @staticmethod
+    def _send_vk_chord(vk_modifier: int, vk_key: int) -> None:
+        """Send a chord like Ctrl+V via SendInput (down/up events)."""
+        import ctypes
+        from ctypes import wintypes
+
+        ULONG_PTR = getattr(wintypes, "ULONG_PTR", ctypes.c_void_p)
+
+        INPUT_KEYBOARD = 1
+        KEYEVENTF_KEYUP = 0x0002
+        KEYEVENTF_SCANCODE = 0x0008
+        MAPVK_VK_TO_VSC = 0
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [
+                ("wVk", wintypes.WORD),
+                ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ULONG_PTR),
+            ]
+
+        class INPUT(ctypes.Structure):
+            class _INPUT_UNION(ctypes.Union):
+                _fields_ = [("ki", KEYBDINPUT)]
+
+            _anonymous_ = ("u",)
+            _fields_ = [("type", wintypes.DWORD), ("u", _INPUT_UNION)]
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        send_input = user32.SendInput
+        send_input.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
+        send_input.restype = wintypes.UINT
+
+        map_virtual_key = user32.MapVirtualKeyW
+        map_virtual_key.argtypes = (wintypes.UINT, wintypes.UINT)
+        map_virtual_key.restype = wintypes.UINT
+
+        mod_scan = map_virtual_key(vk_modifier, MAPVK_VK_TO_VSC)
+        key_scan = map_virtual_key(vk_key, MAPVK_VK_TO_VSC)
+        if not mod_scan or not key_scan:
+            raise OSError("MapVirtualKeyW failed for modifier/key chord.")
+
+        events = (INPUT * 4)(
+            INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(wVk=0, wScan=mod_scan, dwFlags=KEYEVENTF_SCANCODE, time=0, dwExtraInfo=0)),
+            INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(wVk=0, wScan=key_scan, dwFlags=KEYEVENTF_SCANCODE, time=0, dwExtraInfo=0)),
+            INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(wVk=0, wScan=key_scan, dwFlags=KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, time=0, dwExtraInfo=0)),
+            INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(wVk=0, wScan=mod_scan, dwFlags=KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, time=0, dwExtraInfo=0)),
+        )
+
+        sent = send_input(4, events, ctypes.sizeof(INPUT))
+        if sent != 4:
+            err = ctypes.get_last_error()
+            raise OSError(f"Failed to send chord (SendInput sent {sent}/4, err={err}).")
 
     @staticmethod
     def _press_virtual_key(vk_code: int) -> None:
@@ -233,6 +287,71 @@ class ChivalryConsoleAutomation:
             err = ctypes.get_last_error()
             raise OSError(f"Failed to send Unicode text (SendInput sent {sent}/{len(arr)}, err={err}).")
 
+    @staticmethod
+    def _force_foreground_window(hwnd: int) -> None:
+        """Best-effort: force `hwnd` to foreground without mouse clicks."""
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+        get_foreground = user32.GetForegroundWindow
+        get_foreground.argtypes = ()
+        get_foreground.restype = wintypes.HWND
+
+        get_window_thread = user32.GetWindowThreadProcessId
+        get_window_thread.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+        get_window_thread.restype = wintypes.DWORD
+
+        attach_thread_input = user32.AttachThreadInput
+        attach_thread_input.argtypes = (wintypes.DWORD, wintypes.DWORD, wintypes.BOOL)
+        attach_thread_input.restype = wintypes.BOOL
+
+        set_foreground = user32.SetForegroundWindow
+        set_foreground.argtypes = (wintypes.HWND,)
+        set_foreground.restype = wintypes.BOOL
+
+        bring_to_top = user32.BringWindowToTop
+        bring_to_top.argtypes = (wintypes.HWND,)
+        bring_to_top.restype = wintypes.BOOL
+
+        show_window = user32.ShowWindow
+        show_window.argtypes = (wintypes.HWND, ctypes.c_int)
+        show_window.restype = wintypes.BOOL
+
+        get_current_thread = user32.GetCurrentThreadId
+        get_current_thread.argtypes = ()
+        get_current_thread.restype = wintypes.DWORD
+
+        SW_RESTORE = 9
+
+        target = wintypes.HWND(hwnd)
+        show_window(target, SW_RESTORE)
+        bring_to_top(target)
+
+        fg = get_foreground()
+        fg_tid = 0
+        if fg:
+            fg_pid = wintypes.DWORD()
+            fg_tid = int(get_window_thread(fg, ctypes.byref(fg_pid)))
+
+        target_pid = wintypes.DWORD()
+        target_tid = int(get_window_thread(target, ctypes.byref(target_pid)))
+        cur_tid = get_current_thread()
+
+        attached_1 = attached_2 = False
+        try:
+            if fg_tid and fg_tid != cur_tid:
+                attached_1 = bool(attach_thread_input(fg_tid, cur_tid, True))
+            if target_tid and target_tid != cur_tid:
+                attached_2 = bool(attach_thread_input(target_tid, cur_tid, True))
+            set_foreground(target)
+        finally:
+            if attached_2:
+                attach_thread_input(target_tid, cur_tid, False)
+            if attached_1:
+                attach_thread_input(fg_tid, cur_tid, False)
+
     @classmethod
     def _press_enter(cls) -> None:
         """Press Enter with multiple fallbacks (some environments block SendInput for VK_RETURN)."""
@@ -300,11 +419,9 @@ class ChivalryConsoleAutomation:
             key=lambda w: 0 if w.window_text().strip().casefold() == cls._match.title_exact_preferred else 1
         )
         win = candidates[0]
-        win.set_focus()
         try:
-            import ctypes
-
-            ctypes.WinDLL("user32", use_last_error=True).SetForegroundWindow(int(win.handle))
+            cls._force_foreground_window(int(win.handle))
+            win.set_focus()
         except Exception:
             pass
         if GAME_CONFIG.click_to_focus:
@@ -327,6 +444,13 @@ class ChivalryConsoleAutomation:
         errors: list[Exception] = []
 
         # Prefer physical key delivery over text, because games often ignore character input.
+        # Note: if all of these fail, we raise (rather than "typing a `") so failures are visible.
+        try:
+            cls._press_vk_keybd_event(GAME_CONFIG.console_open_vk)
+            return
+        except Exception as e:
+            errors.append(e)
+
         try:
             cls._press_scan_code(GAME_CONFIG.console_open_scan_code)
             return
@@ -335,20 +459,6 @@ class ChivalryConsoleAutomation:
 
         try:
             cls._press_virtual_key(GAME_CONFIG.console_open_vk)
-            return
-        except Exception as e:
-            errors.append(e)
-
-        try:
-            cls._press_vk_keybd_event(GAME_CONFIG.console_open_vk)
-            return
-        except Exception as e:
-            errors.append(e)
-
-        try:
-            from pywinauto.keyboard import send_keys
-
-            send_keys("`", pause=0.02)
             return
         except Exception as e:
             errors.append(e)
@@ -395,6 +505,49 @@ class ChivalryConsoleAutomation:
             cls._press_enter()
 
         # Keep game in foreground.
+        time.sleep(GAME_CONFIG.after_command_delay_s)
+
+        if restore_clipboard and old_clip is not None:
+            try:
+                pyperclip.copy(old_clip)
+            except Exception:
+                pass
+
+    @classmethod
+    def paste_clipboard_and_execute(cls, command: str, restore_clipboard: bool = True) -> None:
+        """Focus game, open console, Ctrl+V, Enter.
+
+        This matches the manual workflow: focus -> ` -> paste -> enter.
+        """
+        import pyperclip
+
+        old_clip = None
+        if restore_clipboard:
+            try:
+                old_clip = pyperclip.paste()
+            except Exception:
+                old_clip = None
+
+        try:
+            pyperclip.copy(command)
+        except Exception:
+            raise RuntimeError("Failed to write command to clipboard.")
+
+        cls.ensure_windows()
+        cls.focus_window()
+        cls.open_console()
+        time.sleep(GAME_CONFIG.console_open_delay_s)
+
+        # Prefer a real Ctrl+V chord; fall back to send_keys if blocked.
+        try:
+            cls._send_vk_chord(0x11, 0x56)  # VK_CONTROL + VK_V
+        except Exception:
+            from pywinauto.keyboard import send_keys
+
+            send_keys("^v", pause=0.02)
+
+        time.sleep(0.05)
+        cls._press_enter()
         time.sleep(GAME_CONFIG.after_command_delay_s)
 
         if restore_clipboard and old_clip is not None:
