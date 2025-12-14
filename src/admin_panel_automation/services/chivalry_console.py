@@ -28,6 +28,8 @@ class ChivalryConsoleAutomation:
         import ctypes
         from ctypes import wintypes
 
+        ULONG_PTR = getattr(wintypes, "ULONG_PTR", ctypes.c_void_p)
+
         INPUT_KEYBOARD = 1
         KEYEVENTF_KEYUP = 0x0002
         KEYEVENTF_SCANCODE = 0x0008
@@ -39,7 +41,7 @@ class ChivalryConsoleAutomation:
                 ("wScan", wintypes.WORD),
                 ("dwFlags", wintypes.DWORD),
                 ("time", wintypes.DWORD),
-                ("dwExtraInfo", wintypes.ULONG_PTR),
+                ("dwExtraInfo", ULONG_PTR),
             ]
 
         class INPUT(ctypes.Structure):
@@ -88,6 +90,8 @@ class ChivalryConsoleAutomation:
         import ctypes
         from ctypes import wintypes
 
+        ULONG_PTR = getattr(wintypes, "ULONG_PTR", ctypes.c_void_p)
+
         INPUT_KEYBOARD = 1
         KEYEVENTF_KEYUP = 0x0002
         KEYEVENTF_SCANCODE = 0x0008
@@ -98,7 +102,7 @@ class ChivalryConsoleAutomation:
                 ("wScan", wintypes.WORD),
                 ("dwFlags", wintypes.DWORD),
                 ("time", wintypes.DWORD),
-                ("dwExtraInfo", wintypes.ULONG_PTR),
+                ("dwExtraInfo", ULONG_PTR),
             ]
 
         class INPUT(ctypes.Structure):
@@ -139,6 +143,8 @@ class ChivalryConsoleAutomation:
         import ctypes
         from ctypes import wintypes
 
+        ULONG_PTR = getattr(wintypes, "ULONG_PTR", ctypes.c_void_p)
+
         INPUT_KEYBOARD = 1
         KEYEVENTF_KEYUP = 0x0002
         KEYEVENTF_UNICODE = 0x0004
@@ -149,7 +155,7 @@ class ChivalryConsoleAutomation:
                 ("wScan", wintypes.WORD),
                 ("dwFlags", wintypes.DWORD),
                 ("time", wintypes.DWORD),
-                ("dwExtraInfo", wintypes.ULONG_PTR),
+                ("dwExtraInfo", ULONG_PTR),
             ]
 
         class INPUT(ctypes.Structure):
@@ -228,10 +234,11 @@ class ChivalryConsoleAutomation:
         )
         win = candidates[0]
         win.set_focus()
-        try:
-            win.click_input(coords=(50, 50))
-        except Exception:
-            pass
+        if GAME_CONFIG.click_to_focus:
+            try:
+                win.click_input(coords=(50, 50))
+            except Exception:
+                pass
         time.sleep(GAME_CONFIG.focus_delay_s)
 
     @classmethod
