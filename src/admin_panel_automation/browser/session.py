@@ -126,13 +126,15 @@ class BrowserSession:
                 self._playwright_cm = None
                 self._playwright = None
 
-    def get_or_create_app_page(self, base_url: str) -> Page:
+    def get_or_create_app_page(self, base_url: str, bring_to_front: bool = True) -> Page:
         """Find an existing app tab on `base_url`, or create one.
 
         Parameters
         ----------
         base_url:
             The base URL to match for an existing tab.
+        bring_to_front:
+            If True, attempts to bring an existing matching tab to the foreground.
 
         Returns
         -------
@@ -143,10 +145,11 @@ class BrowserSession:
 
         for p in self._context.pages:
             if p.url.startswith(base_url):
-                try:
-                    p.bring_to_front()
-                except Exception:
-                    pass
+                if bring_to_front:
+                    try:
+                        p.bring_to_front()
+                    except Exception:
+                        pass
                 return p
 
         page = self._context.new_page()

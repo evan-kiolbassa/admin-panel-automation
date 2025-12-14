@@ -288,6 +288,47 @@ class ChivalryConsoleAutomation:
             raise OSError(f"Failed to send Unicode text (SendInput sent {sent}/{len(arr)}, err={err}).")
 
     @staticmethod
+    def _get_foreground_window_handle() -> int:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        get_foreground = user32.GetForegroundWindow
+        get_foreground.argtypes = ()
+        get_foreground.restype = wintypes.HWND
+        hwnd = get_foreground()
+        return int(hwnd) if hwnd else 0
+
+    @staticmethod
+    def _get_window_text(hwnd: int) -> str:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        get_len = user32.GetWindowTextLengthW
+        get_len.argtypes = (wintypes.HWND,)
+        get_len.restype = ctypes.c_int
+
+        get_text = user32.GetWindowTextW
+        get_text.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+        get_text.restype = ctypes.c_int
+
+        handle = wintypes.HWND(hwnd)
+        length = int(get_len(handle))
+        buf = ctypes.create_unicode_buffer(max(length + 1, 512))
+        get_text(handle, buf, len(buf))
+        return buf.value
+
+    @classmethod
+    def _wait_for_foreground(cls, hwnd: int, timeout_s: float = 1.5) -> bool:
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if cls._get_foreground_window_handle() == hwnd:
+                return True
+            time.sleep(0.05)
+        return False
+
+    @staticmethod
     def _force_foreground_window(hwnd: int) -> None:
         """Best-effort: force `hwnd` to foreground without mouse clicks."""
         import ctypes
@@ -310,6 +351,11 @@ class ChivalryConsoleAutomation:
         set_foreground = user32.SetForegroundWindow
         set_foreground.argtypes = (wintypes.HWND,)
         set_foreground.restype = wintypes.BOOL
+
+        switch_to = getattr(user32, "SwitchToThisWindow", None)
+        if switch_to is not None:
+            switch_to.argtypes = (wintypes.HWND, wintypes.BOOL)
+            switch_to.restype = None
 
         bring_to_top = user32.BringWindowToTop
         bring_to_top.argtypes = (wintypes.HWND,)
@@ -345,7 +391,9 @@ class ChivalryConsoleAutomation:
                 attached_1 = bool(attach_thread_input(fg_tid, cur_tid, True))
             if target_tid and target_tid != cur_tid:
                 attached_2 = bool(attach_thread_input(target_tid, cur_tid, True))
-            set_foreground(target)
+            ok = bool(set_foreground(target))
+            if not ok and switch_to is not None:
+                switch_to(target, True)
         finally:
             if attached_2:
                 attach_thread_input(target_tid, cur_tid, False)
@@ -400,35 +448,64 @@ class ChivalryConsoleAutomation:
         RuntimeError
             If no suitable window is found.
         """
+        cls.ensure_windows()
         from pywinauto import Desktop
 
         desktop = Desktop(backend="win32")
-        candidates = []
+        preferred = cls._match.title_exact_preferred.casefold()
+        candidates: list[tuple[tuple[int, int], object, str]] = []
         for w in desktop.windows():
             try:
+                if hasattr(w, "is_visible") and not w.is_visible():
+                    continue
                 title = w.window_text()
             except Exception:
                 continue
-            if title and cls._match.title_contains in title.casefold():
-                candidates.append(w)
+            if not title:
+                continue
+
+            title_clean = title.strip()
+            title_cf = title_clean.casefold()
+            if cls._match.title_contains not in title_cf:
+                continue
+
+            if title_cf == preferred:
+                score = (0, len(title_clean))
+            elif preferred in title_cf:
+                score = (1, len(title_clean))
+            else:
+                score = (2, len(title_clean))
+            candidates.append((score, w, title_clean))
 
         if not candidates:
             raise RuntimeError('Could not find an active "Chivalry 2" window. Make sure you are in-game.')
 
-        candidates.sort(
-            key=lambda w: 0 if w.window_text().strip().casefold() == cls._match.title_exact_preferred else 1
-        )
-        win = candidates[0]
+        candidates.sort(key=lambda item: item[0])
+        win = candidates[0][1]
+        target_title = candidates[0][2]
+        hwnd = int(win.handle)
+        errors: list[Exception] = []
         try:
-            cls._force_foreground_window(int(win.handle))
+            cls._force_foreground_window(hwnd)
+        except Exception as e:
+            errors.append(e)
+        try:
             win.set_focus()
-        except Exception:
-            pass
+        except Exception as e:
+            errors.append(e)
         if GAME_CONFIG.click_to_focus:
             try:
                 win.click_input(coords=(50, 50))
             except Exception:
                 pass
+        if not cls._wait_for_foreground(hwnd):
+            fg_hwnd = cls._get_foreground_window_handle()
+            fg_title = cls._get_window_text(fg_hwnd) if fg_hwnd else ""
+            err_text = "; ".join(str(e) for e in errors if str(e))
+            raise RuntimeError(
+                f'Failed to focus "{target_title}" (0x{hwnd:08X}). '
+                f'Foreground is "{fg_title}" (0x{fg_hwnd:08X}). {err_text}'
+            )
         time.sleep(GAME_CONFIG.focus_delay_s)
 
     @classmethod
@@ -521,6 +598,8 @@ class ChivalryConsoleAutomation:
         """
         import pyperclip
 
+        cls.ensure_windows()
+
         old_clip = None
         if restore_clipboard:
             try:
@@ -528,15 +607,14 @@ class ChivalryConsoleAutomation:
             except Exception:
                 old_clip = None
 
+        cls.focus_window()
+        cls.open_console()
+        time.sleep(GAME_CONFIG.console_open_delay_s)
+
         try:
             pyperclip.copy(command)
         except Exception:
             raise RuntimeError("Failed to write command to clipboard.")
-
-        cls.ensure_windows()
-        cls.focus_window()
-        cls.open_console()
-        time.sleep(GAME_CONFIG.console_open_delay_s)
 
         # Prefer a real Ctrl+V chord; fall back to send_keys if blocked.
         try:

@@ -91,11 +91,6 @@ class AutomationWorker(threading.Thread):
             if session is None:
                 return ParseResult(False, "No active authenticated session found. Authenticate first.", 0)
 
-            session.ensure_ready()
-            page = session.get_or_create_app_page(base_url=WEB_APP_CONFIG.base_url)
-            if page.locator("a#profile").count() == 0:
-                return ParseResult(False, "Not authenticated. Please Authenticate again.", 0)
-
             return PlayerListService(session).parse_and_submit()
 
         fut: Future = Future()
@@ -116,11 +111,6 @@ class AutomationWorker(threading.Thread):
             session = self._sessions.get(key)
             if session is None:
                 return AdminActionResult(False, "No active authenticated session found. Authenticate first.", None)
-
-            session.ensure_ready()
-            page = session.get_or_create_app_page(base_url=WEB_APP_CONFIG.base_url)
-            if page.locator("a#profile").count() == 0:
-                return AdminActionResult(False, "Not authenticated. Please Authenticate again.", None)
 
             return AdminActionService().execute_from_clipboard()
 

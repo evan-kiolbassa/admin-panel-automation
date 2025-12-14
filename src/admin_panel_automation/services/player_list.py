@@ -108,9 +108,12 @@ class PlayerListService:
     def _submit_clipboard_to_web(self, clipboard_text: str) -> None:
         """Fill textarea#listplayerdata and click Submit."""
         self._session.ensure_ready()
-        page = self._session.get_or_create_app_page(WEB_APP_CONFIG.base_url)
+        page = self._session.get_or_create_app_page(WEB_APP_CONFIG.base_url, bring_to_front=False)
 
         page.goto(WEB_APP_CONFIG.base_url, wait_until="domcontentloaded")
+
+        if page.locator(SELECTORS.profile_anchor).count() == 0:
+            raise RuntimeError("Not authenticated. Please Authenticate again.")
 
         textarea = page.locator(SELECTORS.listplayers_textarea)
         textarea.wait_for(state="visible", timeout=15000)
