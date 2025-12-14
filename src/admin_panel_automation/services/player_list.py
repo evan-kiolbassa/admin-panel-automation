@@ -7,7 +7,7 @@ import time
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from admin_panel_automation.browser.session import BrowserSession
-from admin_panel_automation.config import SELECTORS, WEB_APP_CONFIG, GAME_CONFIG
+from admin_panel_automation.config import SELECTORS, WEB_APP_CONFIG
 from admin_panel_automation.models import ParseResult
 from admin_panel_automation.services.chivalry_console import ChivalryConsoleAutomation
 
@@ -80,7 +80,7 @@ class PlayerListService:
 
         ChivalryConsoleAutomation.focus_window()
 
-        send_keys(GAME_CONFIG.console_key_vk, pause=0.02)
+        ChivalryConsoleAutomation.open_console()
         time.sleep(0.12)
         send_keys("^v{ENTER}", pause=0.02)
 

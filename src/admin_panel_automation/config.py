@@ -55,7 +55,9 @@ SELECTORS = WebSelectors()
 class GameConfig:
     """Configuration for the in-game console automation."""
 
-    console_key_vk: str = "{VK_OEM_3}"
+    # Virtual-key code for the console key.
+    # VK_OEM_3 (0xC0) is the key typically used for ` / ~ on US keyboards.
+    console_open_vk: int = 0xC0
 
 
 GAME_CONFIG = GameConfig()

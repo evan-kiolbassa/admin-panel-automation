@@ -23,6 +23,47 @@ class ChivalryConsoleAutomation:
     _match = ChivalryWindowMatch()
 
     @staticmethod
+    def _press_virtual_key(vk_code: int) -> None:
+        """Press and release a Windows virtual-key code."""
+        import ctypes
+        from ctypes import wintypes
+
+        INPUT_KEYBOARD = 1
+        KEYEVENTF_KEYUP = 0x0002
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [
+                ("wVk", wintypes.WORD),
+                ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", wintypes.ULONG_PTR),
+            ]
+
+        class INPUT(ctypes.Structure):
+            class _INPUT_UNION(ctypes.Union):
+                _fields_ = [("ki", KEYBDINPUT)]
+
+            _anonymous_ = ("u",)
+            _fields_ = [("type", wintypes.DWORD), ("u", _INPUT_UNION)]
+
+        send_input = ctypes.windll.user32.SendInput
+        send_input.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
+        send_input.restype = wintypes.UINT
+
+        inputs = (INPUT * 2)(
+            INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(wVk=vk_code, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)),
+            INPUT(
+                type=INPUT_KEYBOARD,
+                ki=KEYBDINPUT(wVk=vk_code, wScan=0, dwFlags=KEYEVENTF_KEYUP, time=0, dwExtraInfo=0),
+            ),
+        )
+
+        sent = send_input(2, inputs, ctypes.sizeof(INPUT))
+        if sent != 2:
+            raise OSError(f"Failed to send VK 0x{vk_code:02X} (SendInput sent {sent}/2).")
+
+    @staticmethod
     def ensure_windows() -> None:
         """Raise if not running on Windows."""
         if os.name != "nt":
@@ -60,6 +101,17 @@ class ChivalryConsoleAutomation:
         time.sleep(0.2)
 
     @classmethod
+    def open_console(cls) -> None:
+        """Open the in-game console."""
+        cls.ensure_windows()
+        try:
+            cls._press_virtual_key(GAME_CONFIG.console_open_vk)
+        except Exception:
+            from pywinauto.keyboard import send_keys
+
+            send_keys("`", pause=0.02)
+
+    @classmethod
     def paste_and_execute(cls, command: str, restore_clipboard: bool = True) -> None:
         """Open the console, paste `command`, and press Enter.
 
@@ -78,7 +130,7 @@ class ChivalryConsoleAutomation:
 
         cls.focus_window()
 
-        send_keys(GAME_CONFIG.console_key_vk, pause=0.02)
+        cls.open_console()
         time.sleep(0.12)
         send_keys("^v{ENTER}", pause=0.02)
 
