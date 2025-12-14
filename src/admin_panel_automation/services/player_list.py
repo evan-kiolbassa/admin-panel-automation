@@ -73,21 +73,14 @@ class PlayerListService:
             If clipboard does not update in time.
         """
         import pyperclip
-        from pywinauto.keyboard import send_keys
 
         old_clip = pyperclip.paste()
-        pyperclip.copy("listplayers")
-
-        ChivalryConsoleAutomation.focus_window()
-
-        ChivalryConsoleAutomation.open_console()
-        time.sleep(0.12)
-        send_keys("^v{ENTER}", pause=0.02)
+        ChivalryConsoleAutomation.paste_and_execute("listplayers", restore_clipboard=False)
 
         deadline = time.time() + timeout_s
         while time.time() < deadline:
             cur = pyperclip.paste()
-            if cur and cur != "listplayers" and cur != old_clip:
+            if cur and cur != old_clip:
                 return cur
             time.sleep(0.25)
 

@@ -30,6 +30,8 @@ class ChivalryConsoleAutomation:
 
         INPUT_KEYBOARD = 1
         KEYEVENTF_KEYUP = 0x0002
+        KEYEVENTF_SCANCODE = 0x0008
+        MAPVK_VK_TO_VSC = 0
 
         class KEYBDINPUT(ctypes.Structure):
             _fields_ = [
@@ -51,11 +53,26 @@ class ChivalryConsoleAutomation:
         send_input.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
         send_input.restype = wintypes.UINT
 
+        map_virtual_key = ctypes.windll.user32.MapVirtualKeyW
+        map_virtual_key.argtypes = (wintypes.UINT, wintypes.UINT)
+        map_virtual_key.restype = wintypes.UINT
+
+        scan_code = map_virtual_key(vk_code, MAPVK_VK_TO_VSC)
+
         inputs = (INPUT * 2)(
-            INPUT(type=INPUT_KEYBOARD, ki=KEYBDINPUT(wVk=vk_code, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)),
             INPUT(
                 type=INPUT_KEYBOARD,
-                ki=KEYBDINPUT(wVk=vk_code, wScan=0, dwFlags=KEYEVENTF_KEYUP, time=0, dwExtraInfo=0),
+                ki=KEYBDINPUT(wVk=0, wScan=scan_code, dwFlags=KEYEVENTF_SCANCODE, time=0, dwExtraInfo=0),
+            ),
+            INPUT(
+                type=INPUT_KEYBOARD,
+                ki=KEYBDINPUT(
+                    wVk=0,
+                    wScan=scan_code,
+                    dwFlags=KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                    time=0,
+                    dwExtraInfo=0,
+                ),
             ),
         )
 
@@ -98,12 +115,18 @@ class ChivalryConsoleAutomation:
         )
         win = candidates[0]
         win.set_focus()
-        time.sleep(0.2)
+        time.sleep(GAME_CONFIG.focus_delay_s)
 
     @classmethod
     def open_console(cls) -> None:
         """Open the in-game console."""
         cls.ensure_windows()
+        if GAME_CONFIG.pre_console_escape:
+            try:
+                cls._press_virtual_key(0x1B)  # VK_ESCAPE
+                time.sleep(0.05)
+            except Exception:
+                pass
         try:
             cls._press_virtual_key(GAME_CONFIG.console_open_vk)
         except Exception:
@@ -113,32 +136,23 @@ class ChivalryConsoleAutomation:
 
     @classmethod
     def paste_and_execute(cls, command: str, restore_clipboard: bool = True) -> None:
-        """Open the console, paste `command`, and press Enter.
+        """Open the console, type `command`, and press Enter.
 
         Parameters
         ----------
         command:
             Console command to execute.
         restore_clipboard:
-            If True, restores the clipboard contents after execution.
+            Unused (kept for backwards compatibility).
         """
-        import pyperclip
         from pywinauto.keyboard import send_keys
-
-        old_clip = pyperclip.paste()
-        pyperclip.copy(command)
 
         cls.focus_window()
 
         cls.open_console()
-        time.sleep(0.12)
-        send_keys("^v{ENTER}", pause=0.02)
+        time.sleep(GAME_CONFIG.console_open_delay_s)
+        send_keys(command, with_spaces=True, pause=0.01)
+        send_keys("{ENTER}", pause=0.02)
 
         # Keep game in foreground.
         time.sleep(0.2)
-
-        if restore_clipboard:
-            try:
-                pyperclip.copy(old_clip)
-            except Exception:
-                pass

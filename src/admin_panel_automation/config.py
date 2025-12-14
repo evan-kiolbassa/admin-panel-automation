@@ -58,6 +58,9 @@ class GameConfig:
     # Virtual-key code for the console key.
     # VK_OEM_3 (0xC0) is the key typically used for ` / ~ on US keyboards.
     console_open_vk: int = 0xC0
+    focus_delay_s: float = 2.0
+    console_open_delay_s: float = 1.0
+    pre_console_escape: bool = True
 
 
 GAME_CONFIG = GameConfig()
