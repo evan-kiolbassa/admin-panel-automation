@@ -73,14 +73,26 @@ class PlayerListService:
             If clipboard does not update in time.
         """
         import pyperclip
+        import uuid
 
-        old_clip = pyperclip.paste()
+        marker = f"__APA_LISTPLAYERS_WAIT_{uuid.uuid4()}__"
+        try:
+            pyperclip.copy(marker)
+        except Exception:
+            pass
+
+        old_clip = ""
+        try:
+            old_clip = pyperclip.paste()
+        except Exception:
+            old_clip = ""
+
         ChivalryConsoleAutomation.paste_and_execute("listplayers", restore_clipboard=False)
 
         deadline = time.time() + timeout_s
         while time.time() < deadline:
             cur = pyperclip.paste()
-            if cur and cur != old_clip:
+            if cur and cur != marker and cur != old_clip:
                 return cur
             time.sleep(0.25)
 

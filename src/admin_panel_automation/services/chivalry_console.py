@@ -58,6 +58,8 @@ class ChivalryConsoleAutomation:
         map_virtual_key.restype = wintypes.UINT
 
         scan_code = map_virtual_key(vk_code, MAPVK_VK_TO_VSC)
+        if not scan_code:
+            raise OSError(f"MapVirtualKeyW failed for VK 0x{vk_code:02X}.")
 
         inputs = (INPUT * 2)(
             INPUT(
@@ -79,6 +81,117 @@ class ChivalryConsoleAutomation:
         sent = send_input(2, inputs, ctypes.sizeof(INPUT))
         if sent != 2:
             raise OSError(f"Failed to send VK 0x{vk_code:02X} (SendInput sent {sent}/2).")
+
+    @staticmethod
+    def _press_scan_code(scan_code: int) -> None:
+        """Press and release a keyboard scan code (layout-independent)."""
+        import ctypes
+        from ctypes import wintypes
+
+        INPUT_KEYBOARD = 1
+        KEYEVENTF_KEYUP = 0x0002
+        KEYEVENTF_SCANCODE = 0x0008
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [
+                ("wVk", wintypes.WORD),
+                ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", wintypes.ULONG_PTR),
+            ]
+
+        class INPUT(ctypes.Structure):
+            class _INPUT_UNION(ctypes.Union):
+                _fields_ = [("ki", KEYBDINPUT)]
+
+            _anonymous_ = ("u",)
+            _fields_ = [("type", wintypes.DWORD), ("u", _INPUT_UNION)]
+
+        send_input = ctypes.windll.user32.SendInput
+        send_input.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
+        send_input.restype = wintypes.UINT
+
+        inputs = (INPUT * 2)(
+            INPUT(
+                type=INPUT_KEYBOARD,
+                ki=KEYBDINPUT(wVk=0, wScan=scan_code, dwFlags=KEYEVENTF_SCANCODE, time=0, dwExtraInfo=0),
+            ),
+            INPUT(
+                type=INPUT_KEYBOARD,
+                ki=KEYBDINPUT(
+                    wVk=0,
+                    wScan=scan_code,
+                    dwFlags=KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+                    time=0,
+                    dwExtraInfo=0,
+                ),
+            ),
+        )
+
+        sent = send_input(2, inputs, ctypes.sizeof(INPUT))
+        if sent != 2:
+            raise OSError(f"Failed to send scan code 0x{scan_code:02X} (SendInput sent {sent}/2).")
+
+    @staticmethod
+    def _send_text_unicode(text: str) -> None:
+        """Send text as Unicode keystrokes to the active foreground window."""
+        import ctypes
+        from ctypes import wintypes
+
+        INPUT_KEYBOARD = 1
+        KEYEVENTF_KEYUP = 0x0002
+        KEYEVENTF_UNICODE = 0x0004
+
+        class KEYBDINPUT(ctypes.Structure):
+            _fields_ = [
+                ("wVk", wintypes.WORD),
+                ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", wintypes.ULONG_PTR),
+            ]
+
+        class INPUT(ctypes.Structure):
+            class _INPUT_UNION(ctypes.Union):
+                _fields_ = [("ki", KEYBDINPUT)]
+
+            _anonymous_ = ("u",)
+            _fields_ = [("type", wintypes.DWORD), ("u", _INPUT_UNION)]
+
+        send_input = ctypes.windll.user32.SendInput
+        send_input.argtypes = (wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int)
+        send_input.restype = wintypes.UINT
+
+        inputs = []
+        for ch in text:
+            code = ord(ch)
+            inputs.append(
+                INPUT(
+                    type=INPUT_KEYBOARD,
+                    ki=KEYBDINPUT(wVk=0, wScan=code, dwFlags=KEYEVENTF_UNICODE, time=0, dwExtraInfo=0),
+                )
+            )
+            inputs.append(
+                INPUT(
+                    type=INPUT_KEYBOARD,
+                    ki=KEYBDINPUT(
+                        wVk=0,
+                        wScan=code,
+                        dwFlags=KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                        time=0,
+                        dwExtraInfo=0,
+                    ),
+                )
+            )
+
+        if not inputs:
+            return
+
+        arr = (INPUT * len(inputs))(*inputs)
+        sent = send_input(len(arr), arr, ctypes.sizeof(INPUT))
+        if sent != len(arr):
+            raise OSError(f"Failed to send Unicode text (SendInput sent {sent}/{len(arr)}).")
 
     @staticmethod
     def ensure_windows() -> None:
@@ -115,6 +228,10 @@ class ChivalryConsoleAutomation:
         )
         win = candidates[0]
         win.set_focus()
+        try:
+            win.click_input(coords=(50, 50))
+        except Exception:
+            pass
         time.sleep(GAME_CONFIG.focus_delay_s)
 
     @classmethod
@@ -124,15 +241,18 @@ class ChivalryConsoleAutomation:
         if GAME_CONFIG.pre_console_escape:
             try:
                 cls._press_virtual_key(0x1B)  # VK_ESCAPE
-                time.sleep(0.05)
+                time.sleep(GAME_CONFIG.after_escape_delay_s)
             except Exception:
                 pass
         try:
             cls._press_virtual_key(GAME_CONFIG.console_open_vk)
         except Exception:
-            from pywinauto.keyboard import send_keys
+            try:
+                cls._press_scan_code(GAME_CONFIG.console_open_scan_code)
+            except Exception:
+                from pywinauto.keyboard import send_keys
 
-            send_keys("`", pause=0.02)
+                send_keys("`", pause=0.02)
 
     @classmethod
     def paste_and_execute(cls, command: str, restore_clipboard: bool = True) -> None:
@@ -143,16 +263,35 @@ class ChivalryConsoleAutomation:
         command:
             Console command to execute.
         restore_clipboard:
-            Unused (kept for backwards compatibility).
+            If True, restores clipboard contents after execution.
         """
-        from pywinauto.keyboard import send_keys
+        import pyperclip
+
+        old_clip = None
+        if restore_clipboard:
+            try:
+                old_clip = pyperclip.paste()
+            except Exception:
+                old_clip = None
 
         cls.focus_window()
 
         cls.open_console()
         time.sleep(GAME_CONFIG.console_open_delay_s)
-        send_keys(command, with_spaces=True, pause=0.01)
-        send_keys("{ENTER}", pause=0.02)
+        try:
+            cls._send_text_unicode(command)
+        except Exception:
+            from pywinauto.keyboard import send_keys
+
+            send_keys(command, with_spaces=True, pause=0.01)
+
+        cls._press_virtual_key(0x0D)  # VK_RETURN
 
         # Keep game in foreground.
-        time.sleep(0.2)
+        time.sleep(GAME_CONFIG.after_command_delay_s)
+
+        if restore_clipboard and old_clip is not None:
+            try:
+                pyperclip.copy(old_clip)
+            except Exception:
+                pass
